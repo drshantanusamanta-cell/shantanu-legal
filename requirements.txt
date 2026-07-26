@@ -1,0 +1,27 @@
+# ---- core ----
+streamlit>=1.40.0
+requests>=2.32.0
+python-dotenv>=1.0.1
+
+# ---- LLM providers ----
+anthropic>=0.40.0
+# Gemini is called over plain REST via `requests`, so no SDK pin is required.
+
+# ---- document ingestion ----
+pdfplumber>=0.11.4
+pypdf>=5.1.0
+python-docx>=1.1.2
+Pillow>=10.4.0
+
+# ---- export ----
+reportlab>=4.2.5
+
+# ---- optional: local judgment corpus (TF-IDF index) ----
+scikit-learn>=1.5.2
+
+# ---- optional: offline OCR fallback ----
+# Requires the tesseract binary on the host:
+#   Debian/Ubuntu:  apt-get install tesseract-ocr
+#   macOS:          brew install tesseract
+# Not needed if you rely on the vision model for scans (recommended).
+# pytesseract>=0.3.13
