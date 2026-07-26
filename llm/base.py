@@ -18,8 +18,12 @@ class LLMResponse:
     usage: dict[str, Any] = field(default_factory=dict)
     stop_reason: str = ""
     provider: str = ""
-    model: str = ""
+    model: str = ""              # model that actually served this response
+    requested_model: str = ""    # model the caller originally asked for
     error: str = ""
+    error_kind: str = ""         # "quota" | "auth" | "network" | "" — for UI branching
+    notices: list[str] = field(default_factory=list)   # non-fatal, e.g. "fell back to X"
+    retry_after_seconds: float | None = None
 
     @property
     def ok(self) -> bool:

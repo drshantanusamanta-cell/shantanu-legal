@@ -435,8 +435,31 @@ def render_verification_panel(result: EngineResult) -> None:
 
 def render_result(result: EngineResult, title: str, key: str) -> None:
     if not result.ok:
-        st.error(result.error)
+        if result.error_kind == "quota":
+            st.error("### 🚦 Gemini quota exceeded", icon="🚦")
+            st.markdown(result.error)
+            if result.retry_after_seconds:
+                st.caption(f"Google's own retry hint: wait ~{result.retry_after_seconds:.0f}s.")
+            from config import GEMINI_QUOTA_FALLBACK_MODEL
+
+            if settings.gemini_model != GEMINI_QUOTA_FALLBACK_MODEL:
+                if st.button(
+                    f"Switch model to {GEMINI_QUOTA_FALLBACK_MODEL}",
+                    type="primary", key=f"switch_flash_{key}",
+                ):
+                    settings.gemini_model = GEMINI_QUOTA_FALLBACK_MODEL
+                    st.session_state.results.pop(key, None)
+                    st.rerun()
+                st.caption("Then press the run button again above — Flash's free quota is "
+                           "roughly 30x larger, so this usually succeeds immediately.")
+        elif result.error_kind == "auth":
+            st.error(f"🔑 {result.error}")
+        else:
+            st.error(result.error)
         return
+
+    for notice in result.notices:
+        st.info(notice, icon="🔁")
 
     tab_out, tab_verify, tab_raw = st.tabs(
         ["📄 Output", "🛡️ Verification", "🔬 Raw model output"]

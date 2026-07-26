@@ -106,6 +106,20 @@ class EngineResult:
     ik: IKStatus = field(default_factory=IKStatus)
 
     @property
+    def notices(self) -> list[str]:
+        """Non-fatal notices from the LLM call, e.g. a model fallback."""
+        return self.llm.notices if self.llm else []
+
+    @property
+    def error_kind(self) -> str:
+        """'quota' | 'auth' | 'network' | 'other' | '' — drives error UI branching."""
+        return self.llm.error_kind if self.llm else ""
+
+    @property
+    def retry_after_seconds(self) -> float | None:
+        return self.llm.retry_after_seconds if self.llm else None
+
+    @property
     def ok(self) -> bool:
         return not self.error
 

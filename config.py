@@ -58,13 +58,29 @@ def has_secret(name: str) -> bool:
 #
 # Gemini only. Anthropic support was removed at the user's request — the
 # llm/anthropic_client.py file is deleted and engine.py no longer imports it.
+#
+# Free-tier quota is why the default model matters here more than usual:
+#   gemini-2.5-pro    ~5 requests/minute, ~50/day on the free tier (Google
+#                     removed free Pro access outright for some accounts in
+#                     2026 — it may require billing at all).
+#   gemini-2.5-flash  15 requests/minute, 1,500/day on the free tier — roughly
+#                     30x the daily headroom, and the recommended default.
+# A single "Run research" click can fire two model calls (discovery, then
+# analysis), so Pro's 50/day cap is exhausted in well under an hour of testing.
+# See https://ai.google.dev/gemini-api/docs/rate-limits for current figures.
 # --------------------------------------------------------------------------
 GEMINI_MODELS = {
-    "gemini-2.5-pro": "Gemini 2.5 Pro — strong long-context reasoning",
-    "gemini-2.5-flash": "Gemini 2.5 Flash — fast & cheap",
+    "gemini-2.5-flash": "Gemini 2.5 Flash — recommended: ~1,500 free requests/day",
+    "gemini-2.5-pro": "Gemini 2.5 Pro — deeper reasoning, but only ~50 free requests/day",
 }
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+# If the selected model hits a quota (429) error, retry once against this
+# model before giving up. Flash's free allowance is roughly 30x Pro's, so this
+# turns a hard failure into a (slightly weaker) successful answer most of the
+# time, rather than nothing at all.
+GEMINI_QUOTA_FALLBACK_MODEL = "gemini-2.5-flash"
 
 
 # --------------------------------------------------------------------------

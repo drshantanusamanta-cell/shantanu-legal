@@ -253,6 +253,46 @@ empty files — before Streamlit does.
 
 ## Troubleshooting
 
+### `HTTP 429: You exceeded your current quota`
+
+This is a **real Google account-level limit**, not a bug — but it's easy to hit
+by accident because `gemini-2.5-pro`'s free tier is genuinely tiny: roughly
+**5 requests/minute and 50/day**, versus `gemini-2.5-flash`'s roughly
+**15/minute and 1,500/day**. One click of "Run research" can fire two model
+calls (discovery, then analysis), so Pro's 50/day cap disappears fast during
+testing. Figures change — check
+[ai.google.dev/gemini-api/docs/rate-limits](https://ai.google.dev/gemini-api/docs/rate-limits).
+
+The app now handles this three ways:
+
+1. **The default model is Flash**, not Pro — this alone removes most 429s.
+2. **Automatic fallback.** If the selected model hits a quota error, the app
+   retries once against Flash before giving up, and tells you it did so.
+3. **A clear error with a one-click fix** if both models are exhausted (which
+   usually means the whole Google Cloud project's quota is gone, not just one
+   model) — a button to switch the sidebar model, plus Google's own suggested
+   retry delay when available.
+
+If you still hit it after switching to Flash: wait for the daily reset
+(midnight Pacific time), or enable billing on your Google Cloud project to
+move off the free tier entirely.
+
+**Considered and rejected: rebuilding this as a Google AI Studio "Build" app.**
+AI Studio's Build mode auto-injects `GEMINI_API_KEY` server-side, so you never
+manage a secrets file — genuinely convenient. But it calls the **same Gemini
+API against the same project's quota**, so it would hit the identical 429. It
+solves a different problem (secrets management) than the one in this
+troubleshooting entry (rate limits). If you want that convenience for a
+*separate*, lighter tool, it's a reasonable choice — just don't expect it to
+raise your quota.
+
+### `HTTP 401` / `HTTP 403` from Gemini
+
+The key itself is wrong, not just rate-limited — these are never retried as
+quota errors. Check `GEMINI_API_KEY` is correct and that the Generative
+Language API is enabled for that Google Cloud project.
+
+
 ### `ModuleNotFoundError: No module named 'legal'` (or `llm`, or `ingest`)
 
 The root files reached GitHub but a **subfolder did not**. Almost always caused by
