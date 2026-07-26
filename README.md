@@ -109,23 +109,35 @@ Streamlit Cloud (Secrets UI) with no changes. **No key ever reaches the browser.
 | Secret | Required | Purpose |
 |---|---|---|
 | `APP_PASSWORD_SHA256` | ✅ | Dashboard access gate |
-| `ANTHROPIC_API_KEY` | one of | Claude — **recommended** |
-| `GEMINI_API_KEY` | one of | Gemini — fully supported |
+| `GEMINI_API_KEY` | ✅ | The LLM — this build is Gemini-only |
 | `INDIAN_KANOON_API_TOKEN` | strongly recommended | Citation verification |
 | `INDIAN_KANOON_SESSION_BUDGET_INR` | optional | Spend ceiling, default ₹25 |
 | `ECOURTS_API_KEY` | optional | Case status, certified copies |
 
-### Claude vs Gemini
+### Why Gemini-only
 
-Both work; you can switch in the sidebar at runtime. One asymmetry matters:
+This build uses Google Gemini exclusively (Anthropic support was removed).
+One consequence worth knowing: **Gemini's search grounding cannot be
+domain-filtered server-side** — there is no API-level equivalent of "only search
+these sites." The app compensates two ways: the domain restriction is stated
+explicitly in the system prompt, and — more importantly — **the hard-block
+verifier is the real enforcement point regardless of provider.** It independently
+re-retrieves every citation from Indian Kanoon and the primary-source whitelist
+and rejects anything that doesn't check out, so a citation sourced from an
+unlisted domain gets suppressed even if Gemini's own search wandered off-list.
 
-**Anthropic's `web_search` accepts `allowed_domains`**, so the app can confine
-research to Indian courts, Indian Kanoon and India Code at the API level.
-**Gemini's grounding cannot be domain-filtered server-side** — the restriction is
-expressed in the prompt and enforced afterwards by the verifier, which rejects any
-citation not sitting on a primary domain. The verifier is the real guard either
-way, but Anthropic gives you defence in depth. Use Claude for opinions and long
-drafts; Gemini is a fine cheaper alternative.
+### Adding or changing `GEMINI_API_KEY` after the app is already running
+
+The token is read fresh on every use, not cached at startup — so pasting a new
+key into Streamlit Cloud's Secrets box and pressing **reload** (or `R`) is
+enough. You do **not** need to reboot the whole app. If it still isn't picked up:
+
+- Confirm the secret name is exactly `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) —
+  case-sensitive, no typos.
+- Confirm it isn't nested under a `[SECTION]` heading — see the TOML warning at
+  the top of `secrets.toml.example`.
+- No stray quotes or trailing spaces around the value.
+- As a last resort, *Manage app → Reboot* forces a clean restart.
 
 ---
 
@@ -277,6 +289,29 @@ carries a docstring specifically so it can never be dropped as an empty file.
 Working as intended: it refuses to run unprotected. Set `APP_PASSWORD_SHA256` —
 see [Set the access password](#set-the-access-password-required).
 
+### "Indian Kanoon token not detected" even though it's in secrets
+
+This was the most common setup failure, and it has two causes:
+
+1. **You added the secret but never reloaded.** Streamlit Cloud does not always
+   auto-restart the app when secrets change. Press `R` or refresh the page.
+   `INDIAN_KANOON_API_TOKEN` is now read fresh on every request rather than
+   cached, so a reload is genuinely all that's needed — no reboot required.
+2. **The key ended up nested under a `[SECTION]` heading.** In TOML, everything
+   after a `[SECTION]` line belongs to that section. If `[APP_USERS]` (or any
+   other table) appears anywhere above your plain keys in `secrets.toml`, those
+   keys silently become `APP_USERS.INDIAN_KANOON_API_TOKEN` and the app can't
+   see them. Keep all plain keys **above** every `[SECTION]` header — see the
+   warning banner at the top of `secrets.toml.example`.
+
+The sidebar has a **"Why isn't my token detected?"** expander and a
+**Test connection** button (costs ₹0.02) that makes one real API call to prove
+the token actually works, not just that a value is present — a wrong token and
+a right one look identical until you call the API.
+
+`python verify_install.py` also checks this and tells you exactly which of the
+above applies.
+
 ### Citations keep getting suppressed
 
 Check the **Raw model output** tab to see what was removed. Common causes:
@@ -286,7 +321,7 @@ Check the **Raw model output** tab to see what was removed. Common causes:
 - The judgment is genuinely obscure and could not be retrieved. Suppression is
   deliberately conservative; it prefers a false negative to a fabricated citation.
 
-### `ModuleNotFoundError: No module named 'anthropic'` / `docx` / `reportlab`
+### `ModuleNotFoundError: No module named 'docx'` / `reportlab` / `streamlit`
 
 `requirements.txt` did not install. Confirm it is at the repo root and matches the
 file in this project, then reboot the app.
@@ -313,9 +348,9 @@ legal_assistant/
 │   └── prompts.py              Senior-advocate prompts + citation contract
 ├── llm/
 │   ├── base.py                 Provider interface
-│   ├── anthropic_client.py     web_search + web_fetch, pause_turn handling
-│   └── gemini_client.py        google_search grounding
+│   └── gemini_client.py        google_search grounding (the only provider)
 ├── ingest/documents.py         PDF / DOCX / image, vision fallback for scans
+├── verify_install.py           Pre-deployment check — run before every push
 └── tests/test_verifier.py      18 tests, all passing
 ```
 

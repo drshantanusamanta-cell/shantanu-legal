@@ -3,6 +3,8 @@ Orchestration layer: prompt -> retrieve -> generate -> VERIFY -> render.
 
 Everything the UI needs goes through `LegalEngine`. The UI never talks to a
 provider directly, which keeps the verification step impossible to bypass.
+
+Gemini only. Anthropic support was removed at the user's request.
 """
 
 from __future__ import annotations
@@ -14,7 +16,6 @@ from config import PRIMARY_SOURCE_DOMAINS, SECONDARY_SOURCE_DOMAINS, AppSettings
 from legal.knowledge_bases import KBDocument, KnowledgeBaseRegistry
 from legal.prompts import CITATION_MAP_PROMPT, PROMPTS
 from legal.verifier import CitationVerifier, VerificationReport
-from llm.anthropic_client import AnthropicProvider
 from llm.base import Attachment, LLMResponse
 from llm.gemini_client import GeminiProvider
 
@@ -113,27 +114,27 @@ class LegalEngine:
     def __init__(self, settings: AppSettings):
         self.settings = settings
         self.registry = KnowledgeBaseRegistry()
-        self.anthropic = AnthropicProvider()
         self.gemini = GeminiProvider()
 
     # ------------------------------------------------------------------
     @property
-    def provider(self):
-        return self.anthropic if self.settings.provider == "anthropic" else self.gemini
+    def provider(self) -> GeminiProvider:
+        return self.gemini
 
     def provider_status(self) -> list[dict[str, Any]]:
         return [
-            {"name": "Anthropic (Claude)", "key": "anthropic", "available": self.anthropic.available},
             {"name": "Google (Gemini)", "key": "gemini", "available": self.gemini.available},
         ]
 
     def any_provider_available(self) -> bool:
-        return self.anthropic.available or self.gemini.available
+        return self.gemini.available
 
     def allowed_domains(self) -> list[str] | None:
         if not self.settings.restrict_to_primary:
             return None
-        # Anthropic caps domain-list size implicitly via request size; keep it tight.
+        # Gemini's grounding cannot be domain-filtered server-side; this list is
+        # injected into the system prompt instead, and the verifier is the real
+        # enforcement point regardless.
         return PRIMARY_SOURCE_DOMAINS[:30]
 
     # ------------------------------------------------------------------
@@ -200,20 +201,12 @@ class LegalEngine:
         result.ik.configured = bool(ik_kb.token)
         result.ik.budget_exhausted = ik_kb.budget_exhausted
 
-        provider = self.provider
+        provider = self.gemini
         if not provider.available:
-            other = self.gemini if self.settings.provider == "anthropic" else self.anthropic
-            if other.available:
-                provider = other
-                result.cost_note["provider_fallback"] = (
-                    f"{self.settings.provider} unavailable; used {provider.name}."
-                )
-            else:
-                result.error = (
-                    "No LLM provider configured. Add ANTHROPIC_API_KEY or GEMINI_API_KEY "
-                    "to your secrets."
-                )
-                return result
+            result.error = (
+                "Gemini API key not configured. Add GEMINI_API_KEY to your secrets."
+            )
+            return result
 
         system = PROMPTS.get(mode, PROMPTS["research"])
 
@@ -249,11 +242,7 @@ class LegalEngine:
         llm = provider.generate(
             system=system,
             messages=messages,
-            model=(
-                self.settings.anthropic_model
-                if provider.name == "anthropic"
-                else self.settings.gemini_model
-            ),
+            model=self.settings.gemini_model,
             max_tokens=self.settings.max_tokens,
             temperature=self.settings.temperature,
             enable_search=enable_search,
@@ -304,20 +293,13 @@ class LegalEngine:
     # ------------------------------------------------------------------
     def citation_map(self, context: str) -> dict[str, Any]:
         """Build a precedent graph from verified cases only."""
-        provider = self.provider if self.provider.available else (
-            self.gemini if self.anthropic.available is False else self.anthropic
-        )
-        if not provider.available:
+        if not self.gemini.available:
             return {"nodes": [], "links": []}
 
-        llm = provider.generate(
+        llm = self.gemini.generate(
             system=CITATION_MAP_PROMPT,
             messages=[{"role": "user", "content": context[:30000]}],
-            model=(
-                self.settings.anthropic_model
-                if provider.name == "anthropic"
-                else self.settings.gemini_model
-            ),
+            model=self.settings.gemini_model,
             max_tokens=2000,
             temperature=0.0,
             enable_search=False,

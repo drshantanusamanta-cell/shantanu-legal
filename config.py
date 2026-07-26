@@ -55,24 +55,16 @@ def has_secret(name: str) -> bool:
 
 # --------------------------------------------------------------------------
 # Provider / model registry
+#
+# Gemini only. Anthropic support was removed at the user's request — the
+# llm/anthropic_client.py file is deleted and engine.py no longer imports it.
 # --------------------------------------------------------------------------
-ANTHROPIC_MODELS = {
-    "claude-opus-5": "Claude Opus 5 — deepest reasoning, best for opinions & long drafts",
-    "claude-sonnet-5": "Claude Sonnet 5 — balanced speed/quality (recommended default)",
-    "claude-haiku-4-5-20251001": "Claude Haiku 4.5 — fast & cheap, for extraction/triage",
-}
-
 GEMINI_MODELS = {
     "gemini-2.5-pro": "Gemini 2.5 Pro — strong long-context reasoning",
     "gemini-2.5-flash": "Gemini 2.5 Flash — fast & cheap",
 }
 
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
-
-# Anthropic server-tool versions (see platform.claude.com tool reference).
-WEB_SEARCH_TOOL_TYPE = "web_search_20250305"
-WEB_FETCH_TOOL_TYPE = "web_fetch_20250910"
 
 
 # --------------------------------------------------------------------------
@@ -139,8 +131,7 @@ SECONDARY_SOURCE_DOMAINS: list[str] = [
 class AppSettings:
     """Runtime settings, mutated by the sidebar."""
 
-    provider: str = "anthropic"          # "anthropic" | "gemini"
-    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
+    provider: str = "gemini"             # Gemini is the only provider
     gemini_model: str = DEFAULT_GEMINI_MODEL
     max_tokens: int = 8000
     temperature: float = 0.2             # low: legal work rewards determinism
@@ -155,7 +146,7 @@ class AppSettings:
 
     @property
     def model(self) -> str:
-        return self.anthropic_model if self.provider == "anthropic" else self.gemini_model
+        return self.gemini_model
 
 
 # --------------------------------------------------------------------------

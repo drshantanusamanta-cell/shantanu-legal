@@ -32,7 +32,7 @@ if _APP_DIR not in sys.path:
 
 _REQUIRED_PACKAGES = {
     "legal": ["citations.py", "knowledge_bases.py", "verifier.py", "prompts.py"],
-    "llm": ["base.py", "anthropic_client.py", "gemini_client.py"],
+    "llm": ["base.py", "gemini_client.py"],
     "ingest": ["documents.py"],
 }
 
@@ -109,7 +109,6 @@ if _problems:
     st.stop()
 
 from config import (
-    ANTHROPIC_MODELS,
     APP_ICON,
     APP_TITLE,
     COPYRIGHT_HOLDER,
@@ -195,40 +194,18 @@ with st.sidebar:
     st.divider()
 
     st.markdown("#### Engine")
-    prov_status = engine.provider_status()
-    available_provs = [p for p in prov_status if p["available"]]
-
-    if not available_provs:
-        st.error("No LLM key configured. Add `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`.")
-    else:
-        labels = {p["key"]: p["name"] for p in prov_status}
-        choices = [p["key"] for p in available_provs]
-        idx = choices.index(settings.provider) if settings.provider in choices else 0
-        settings.provider = st.radio(
-            "Provider", choices, index=idx, format_func=lambda k: labels[k],
-            horizontal=True,
+    if not engine.gemini.available:
+        st.error(
+            "No Gemini key detected. Add `GEMINI_API_KEY` to secrets, then reload "
+            "this page (`R`) — no restart needed."
         )
-
-        if settings.provider == "anthropic":
-            settings.anthropic_model = st.selectbox(
-                "Model", list(ANTHROPIC_MODELS),
-                index=list(ANTHROPIC_MODELS).index(settings.anthropic_model)
-                if settings.anthropic_model in ANTHROPIC_MODELS else 1,
-                format_func=lambda m: m,
-                help="\n".join(f"{k}: {v}" for k, v in ANTHROPIC_MODELS.items()),
-            )
-        else:
-            settings.gemini_model = st.selectbox(
-                "Model", list(GEMINI_MODELS),
-                index=list(GEMINI_MODELS).index(settings.gemini_model)
-                if settings.gemini_model in GEMINI_MODELS else 0,
-            )
-
-    for p in prov_status:
-        cls = "kb-on" if p["available"] else "kb-off"
-        mark = "●" if p["available"] else "○"
-        st.markdown(
-            f"<span class='{cls}'>{mark} {p['name']}</span>", unsafe_allow_html=True
+    else:
+        st.markdown("<span class='kb-on'>● Gemini connected</span>", unsafe_allow_html=True)
+        settings.gemini_model = st.selectbox(
+            "Model", list(GEMINI_MODELS),
+            index=list(GEMINI_MODELS).index(settings.gemini_model)
+            if settings.gemini_model in GEMINI_MODELS else 0,
+            format_func=lambda m: GEMINI_MODELS.get(m, m),
         )
 
     st.divider()
@@ -238,17 +215,43 @@ with st.sidebar:
         mark = "●" if kb["available"] else "○"
         st.markdown(f"<span class='{cls}'>{mark} {kb['name']}</span>", unsafe_allow_html=True)
 
-    if not engine.registry.indian_kanoon.available:
+    ik = engine.registry.indian_kanoon
+    diag = ik.diagnose()
+
+    if not ik.available and not ik.budget_exhausted:
         st.warning(
-            "Indian Kanoon token not set — citation verification is running on grounded "
-            "web search alone, which is materially weaker.",
+            f"Indian Kanoon not detected — {diag['message']} Verification is running "
+            "on grounded web search alone, which is materially weaker.",
             icon="⚠️",
         )
-    else:
-        ik = engine.registry.indian_kanoon
+        with st.expander("Why isn't my token detected?"):
+            st.markdown(
+                "- **Reload the page** (press `R` or refresh) — secrets added on "
+                "Streamlit Cloud only take effect after the *next* script run, and "
+                "adding a secret does not always trigger one automatically.\n"
+                "- **Check the key name is exact:** `INDIAN_KANOON_API_TOKEN` "
+                "(underscores, all caps).\n"
+                "- **Check it isn't nested under a `[SECTION]` heading** in "
+                "`secrets.toml` — everything after a section header belongs to that "
+                "section, so a token placed below `[APP_USERS]` becomes "
+                "`APP_USERS.INDIAN_KANOON_API_TOKEN` and is invisible to the app.\n"
+                "- **No stray quotes/spaces:** `INDIAN_KANOON_API_TOKEN = \"abc123\"`, "
+                "not `INDIAN_KANOON_API_TOKEN = \"\"abc123\"\"` or a trailing space.\n"
+                "- On Streamlit Cloud: *Manage app → Reboot* forces a clean restart "
+                "if a reload alone doesn't pick it up."
+            )
+    elif ik.available:
+        st.markdown("<span class='kb-on'>● Token detected</span>", unsafe_allow_html=True)
+        if st.button("Test connection (₹0.02)", use_container_width=True,
+                     help="Makes one real API call to prove the token actually works, "
+                          "not just that it's present."):
+            with st.spinner("Contacting Indian Kanoon…"):
+                ok, msg = ik.test_connection()
+            (st.success if ok else st.error)(msg)
+
         spend = ik.spend_summary()
         used, budget = spend["total_inr"], spend["budget_inr"]
-        st.caption(f"Indian Kanoon spend: **₹{used:.2f}** of ₹{budget:.2f} session budget")
+        st.caption(f"Session spend: **₹{used:.2f}** of ₹{budget:.2f} budget")
         st.progress(min(1.0, used / budget) if budget else 0.0)
 
         if spend["budget_exhausted"]:
@@ -536,8 +539,8 @@ st.divider()
 
 if not engine.any_provider_available():
     st.error(
-        "No LLM provider is configured. Add `ANTHROPIC_API_KEY` (recommended) or "
-        "`GEMINI_API_KEY` to your secrets, then reload.",
+        "No Gemini API key is configured. Add `GEMINI_API_KEY` to your secrets, "
+        "then reload this page.",
         icon="🔑",
     )
     st.stop()

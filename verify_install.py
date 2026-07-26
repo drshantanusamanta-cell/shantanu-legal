@@ -33,7 +33,7 @@ REQUIRED_TREE = {
           "requirements.txt"],
     "legal": ["__init__.py", "citations.py", "knowledge_bases.py", "verifier.py",
               "prompts.py"],
-    "llm": ["__init__.py", "base.py", "anthropic_client.py", "gemini_client.py"],
+    "llm": ["__init__.py", "base.py", "gemini_client.py"],
     "ingest": ["__init__.py", "documents.py"],
 }
 
@@ -69,7 +69,7 @@ def check_imports() -> None:
     modules = [
         "config", "auth", "exporters", "engine",
         "legal.citations", "legal.knowledge_bases", "legal.verifier", "legal.prompts",
-        "llm.base", "llm.anthropic_client", "llm.gemini_client",
+        "llm.base", "llm.gemini_client",
         "ingest.documents",
     ]
     for m in modules:
@@ -87,7 +87,7 @@ def check_imports() -> None:
 def check_dependencies() -> None:
     print(f"\n{DIM}--- dependencies ---{RESET}")
     required = {
-        "streamlit": "streamlit", "requests": "requests", "anthropic": "anthropic",
+        "streamlit": "streamlit", "requests": "requests",
         "pdfplumber": "pdfplumber", "docx": "python-docx", "reportlab": "reportlab",
     }
     optional = {"sklearn": "scikit-learn", "pytesseract": "pytesseract",
@@ -124,22 +124,29 @@ def check_secrets() -> None:
         print(f"  {WARN}  no access password — the app will refuse to start")
         warnings.append("APP_PASSWORD_SHA256 not set")
 
-    if get_secret("ANTHROPIC_API_KEY") or get_secret("GEMINI_API_KEY"):
-        which = []
-        if get_secret("ANTHROPIC_API_KEY"):
-            which.append("Anthropic")
-        if get_secret("GEMINI_API_KEY"):
-            which.append("Gemini")
-        print(f"  {OK}  LLM provider configured: {', '.join(which)}")
+    if get_secret("GEMINI_API_KEY"):
+        print(f"  {OK}  GEMINI_API_KEY configured")
     else:
-        print(f"  {WARN}  no LLM key — set ANTHROPIC_API_KEY or GEMINI_API_KEY")
-        warnings.append("no LLM API key configured")
+        print(f"  {WARN}  no GEMINI_API_KEY — the app cannot generate anything")
+        warnings.append("GEMINI_API_KEY not set")
 
-    if get_secret("INDIAN_KANOON_API_TOKEN"):
-        print(f"  {OK}  Indian Kanoon token configured")
-    else:
-        print(f"  {WARN}  no Indian Kanoon token — citation verification will be weaker")
-        warnings.append("INDIAN_KANOON_API_TOKEN not set")
+    try:
+        from legal.knowledge_bases import IndianKanoonKB
+
+        diag = IndianKanoonKB().diagnose()
+        if diag["ok"]:
+            print(f"  {OK}  Indian Kanoon: {diag['message']}")
+            if diag["reason"] == "whitespace_trimmed":
+                warnings.append(
+                    "INDIAN_KANOON_API_TOKEN had surrounding whitespace (auto-trimmed; "
+                    "consider cleaning the secret itself)"
+                )
+        else:
+            print(f"  {WARN}  Indian Kanoon: {diag['message']}")
+            warnings.append(f"Indian Kanoon token: {diag['message']}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  {WARN}  could not check Indian Kanoon token: {exc}")
+        warnings.append(f"Indian Kanoon check failed: {exc}")
 
 
 def check_gitignore() -> None:

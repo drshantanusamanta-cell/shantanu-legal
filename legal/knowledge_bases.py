@@ -134,7 +134,10 @@ class IndianKanoonKB(BaseKB):
     }
 
     def __init__(self, token: str | None = None, budget_inr: float | None = None):
-        self.token = token or get_secret("INDIAN_KANOON_API_TOKEN")
+        # Read LAZILY, not here. Streamlit caches this object via
+        # @st.cache_resource, so a token captured at construction time would be
+        # frozen forever -- adding the secret later would never take effect.
+        self._token_override = token
         self._session = requests.Session()
         # Per-session accounting so the UI can show cost in real time.
         self.spend_inr: float = 0.0
@@ -153,9 +156,101 @@ class IndianKanoonKB(BaseKB):
             self.budget_inr = 25.0
         self.budget_exhausted = False
 
+    def _raw_token(self) -> str | None:
+        """
+        Resolve the unprocessed token value.
+
+        `_token_override is not None` means the caller explicitly forced a
+        value (including "" to force "no token", used by tests) — in that case
+        secrets are never consulted, so an offline test fixture can never
+        accidentally pick up a real key from the host environment. Only when
+        no override was given at all (the normal app path) do we fall through
+        to st.secrets / os.environ.
+        """
+        if self._token_override is not None:
+            return self._token_override
+        return get_secret("INDIAN_KANOON_API_TOKEN")
+
+    @property
+    def token(self) -> str | None:
+        """
+        Resolved fresh on every access.
+
+        Whitespace is stripped because pasting a token into the Streamlit Cloud
+        secrets box very often carries a trailing newline or space, which makes
+        the header `Authorization: Token abc123 ` and yields a silent 403.
+        """
+        raw = self._raw_token()
+        if raw is None:
+            return None
+        tok = str(raw).strip().strip('"').strip("'")
+        # Guard against the placeholder being left in place.
+        if not tok or tok.lower() in {
+            "your_indian_kanoon_token", "your_token_here", "none", "null",
+        }:
+            return None
+        return tok
+
     @property
     def available(self) -> bool:
         return bool(self.token) and not self.budget_exhausted
+
+    def diagnose(self) -> dict[str, Any]:
+        """Explain, in plain terms, why the token is or is not being picked up."""
+        raw = self._raw_token()
+        if raw is None:
+            return {
+                "ok": False,
+                "reason": "not_found",
+                "message": (
+                    "`INDIAN_KANOON_API_TOKEN` was not found in st.secrets or the "
+                    "environment. Check the spelling, and make sure it is not nested "
+                    "underneath a [SECTION] header in secrets.toml."
+                ),
+            }
+        s = str(raw)
+        if s.strip() == "":
+            return {"ok": False, "reason": "empty",
+                    "message": "`INDIAN_KANOON_API_TOKEN` is present but empty."}
+        if s != s.strip():
+            return {"ok": True, "reason": "whitespace_trimmed",
+                    "message": "Token had surrounding whitespace; trimmed automatically."}
+        if self.token is None:
+            return {"ok": False, "reason": "placeholder",
+                    "message": "The placeholder value is still in place. Paste your real token."}
+        return {"ok": True, "reason": "ok", "message": "Token detected."}
+
+    def test_connection(self) -> tuple[bool, str]:
+        """
+        Make one real, cheap call (docmeta, Rs 0.02) to prove the token works.
+
+        Distinguishes 'configured' from 'actually working' -- a wrong token looks
+        identical to a right one until you call the API.
+        """
+        if not self.token:
+            return False, self.diagnose()["message"]
+        try:
+            r = self._session.post(
+                f"{self.BASE}/docmeta/257876/",
+                headers=self._headers(), timeout=REQUEST_TIMEOUT,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Network error reaching Indian Kanoon: {exc}"
+
+        if r.status_code == 403:
+            return False, (
+                "403 Forbidden — the token was rejected. Either it is wrong, or your "
+                "prepaid balance is exhausted (the API is prepaid; top up at "
+                "api.indiankanoon.org)."
+            )
+        if r.status_code == 401:
+            return False, "401 Unauthorised — check the token value."
+        if r.status_code >= 400:
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        self.call_counts["docmeta"] = self.call_counts.get("docmeta", 0) + 1
+        self.spend_inr += self.COST["docmeta"]
+        return True, "Connected. Token is valid and the account has balance. (Cost: Rs 0.02)"
 
     def reset_spend(self) -> None:
         self.spend_inr = 0.0
@@ -357,9 +452,25 @@ class ECourtsIndiaKB(BaseKB):
     authority = "primary"
 
     def __init__(self, api_key: str | None = None, base: str | None = None):
-        self.api_key = api_key or get_secret("ECOURTS_API_KEY")
-        self.base = (base or get_secret("ECOURTS_API_BASE") or "https://api.ecourtsindia.com").rstrip("/")
+        # Lazy for the same reason as Indian Kanoon: this object is cached by
+        # Streamlit, so a key captured at construction would never refresh.
+        self._api_key_override = api_key
+        self._base_override = base
         self._session = requests.Session()
+
+    @property
+    def api_key(self) -> str | None:
+        # See IndianKanoonKB._raw_token for why this is "is not None", not "or".
+        raw = self._api_key_override if self._api_key_override is not None else get_secret("ECOURTS_API_KEY")
+        if raw is None:
+            return None
+        key = str(raw).strip().strip('"').strip("'")
+        return key or None
+
+    @property
+    def base(self) -> str:
+        raw = self._base_override or get_secret("ECOURTS_API_BASE")
+        return str(raw or "https://api.ecourtsindia.com").strip().rstrip("/")
 
     @property
     def available(self) -> bool:

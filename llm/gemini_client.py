@@ -30,8 +30,23 @@ class GeminiProvider(LLMProvider):
     name = "gemini"
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or get_secret("GEMINI_API_KEY") or get_secret("GOOGLE_API_KEY")
+        # Lazy for the same reason as the Anthropic provider (Streamlit caching).
+        self._api_key_override = api_key
         self._session = requests.Session()
+
+    @property
+    def api_key(self) -> str | None:
+        raw = (
+            self._api_key_override
+            or get_secret("GEMINI_API_KEY")
+            or get_secret("GOOGLE_API_KEY")
+        )
+        if raw is None:
+            return None
+        key = str(raw).strip().strip('"').strip("'")
+        if not key or key.startswith("AIza..."):
+            return None
+        return key
 
     @property
     def available(self) -> bool:

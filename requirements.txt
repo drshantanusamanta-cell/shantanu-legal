@@ -3,9 +3,9 @@ streamlit>=1.40.0
 requests>=2.32.0
 python-dotenv>=1.0.1
 
-# ---- LLM providers ----
-anthropic>=0.40.0
-# Gemini is called over plain REST via `requests`, so no SDK pin is required.
+# ---- LLM provider ----
+# Gemini-only build. Called over plain REST via `requests`, so no SDK pin is
+# required (no `google-generativeai` / `anthropic` package needed).
 
 # ---- document ingestion ----
 pdfplumber>=0.11.4
